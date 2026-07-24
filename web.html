@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor BCV - Tasa en Tiempo Real</title>
+<style>
+  :root {
+    --bg: #0f0f11; --surface: #1a1a1e; --surface-hover: #222228;
+    --border: #2a2a30; --border-hover: #3a3a42;
+    --text-primary: #f0f0f5; --text-secondary: #a0a0b0; --text-muted: #6e6e7e;
+    --accent: #3b82f6; --positive: #22c55e; --danger: #ef4444; --warning: #f59e0b;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SF Mono", "Fira Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 16px;
+  }
+  .container { width: 100%; max-width: 520px; }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; flex-wrap: wrap; gap: 10px;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
+  .live-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; padding: 4px 10px;
+    border-radius: 20px; background: rgba(34,197,94,0.12);
+    color: var(--positive); border: 1px solid rgba(34,197,94,0.2);
+  }
+  .live-badge.offline {
+    background: rgba(239,68,68,0.12); color: var(--danger);
+    border-color: rgba(239,68,68,0.2);
+  }
+  .pulse {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--positive); animation: pulse 2s infinite;
+  }
+  .pulse.offline { background: var(--danger); animation: none; }
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:0.4; transform:scale(1.4); }
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .card:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+  .card-label {
+    font-size: 12px; color: var(--text-muted); margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card-value {
+    font-size: 26px; font-weight: 600; color: var(--text-primary);
+    font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+    line-height: 1.1; min-height: 29px;
+  }
+  .card-value.loading { color: var(--text-muted); font-size: 14px; font-weight: 400; }
+  .card-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .card-delta {
+    font-size: 12px; font-weight: 500; margin-top: 6px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .up { color: var(--danger); }
+  .down { color: var(--positive); }
+  .neutral { color: var(--text-muted); }
+  .converter {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  }
+  .converter h2 {
+    font-size: 14px; font-weight: 600; margin-bottom: 14px;
+    color: var(--text-secondary); display: flex; align-items: center; gap: 8px;
+  }
+  .input-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .input-row input, .input-row select {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; font-size: 16px;
+    color: var(--text-primary); outline: none;
+    font-family: var(--font-sans); font-variant-numeric: tabular-nums;
+  }
+  .input-row input { flex: 1; }
+  .input-row input:focus, .input-row select:focus { border-color: var(--accent); }
+  .input-row select { cursor: pointer; min-width: 100px; }
+  .result-box {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; margin-top: 10px;
+  }
+  .result-label {
+    font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+  .result-value {
+    font-size: 28px; font-weight: 600; color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .rate-info { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .actions {
+    display: flex; gap: 10px; margin-bottom: 16px;
+  }
+  .btn {
+    flex: 1; padding: 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-primary); font-size: 14px;
+    font-weight: 500; cursor: pointer; transition: all 0.2s;
+    font-family: var(--font-sans); display: flex; align-items: center;
+    justify-content: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #2563eb; border-color: #2563eb; }
+  .info-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  .info-box h3 {
+    font-size: 13px; font-weight: 600; margin-bottom: 8px;
+    color: var(--text-secondary);
+  }
+  .info-box p {
+    font-size: 13px; color: var(--text-muted); line-height: 1.7;
+  }
+  .info-box code {
+    font-family: var(--font-mono); font-size: 12px;
+    background: var(--bg); padding: 2px 6px; border-radius: 4px;
+    color: var(--accent);
+  }
+  .footer {
+    text-align: center; font-size: 12px; color: var(--text-muted);
+    padding-top: 8px;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+  .error-msg {
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+    color: var(--danger); padding: 12px 16px; border-radius: 10px;
+    font-size: 13px; margin-bottom: 16px; display: none;
+  }
+  .error-msg.visible { display: block; }
+  @media (max-width: 480px) {
+    .grid { grid-template-columns: 1fr; }
+    .card-value { font-size: 22px; }
+    .result-value { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Monitor BCV</h1>
+    <span class="live-badge" id="statusBadge"><span class="pulse" id="statusDot"></span> <span id="statusText">Conectando...</span></span>
+  </div>
+
+  <div class="error-msg" id="errorMsg">
+    No se pudo conectar con la API. Mostrando última tasa conocida.
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="refreshBtn" onclick="fetchRates()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      Actualizar ahora
+    </button>
+    <button class="btn" id="autoBtn" onclick="toggleAuto()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Auto: OFF
+    </button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        Dólar BCV
+      </div>
+      <div class="card-value loading" id="usdValue">Cargando...</div>
+      <div class="card-sub">Bs/USD</div>
+      <div class="card-delta neutral" id="usdDelta">—</div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        Euro BCV
+      </div>
+      <div class="card-value loading" id="eurValue">Cargando...</div>
+      <div class="card-sub">Bs/EUR</div>
+      <div class="card-delta neutral" id="eurDelta">—</div>
+    </div>
+  </div>
+
+  <div class="converter">
+    <h2>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+      Conversor de divisas
+    </h2>
+    <div class="input-row">
+      <input type="number" id="amount" value="100" min="0" step="0.01" placeholder="Monto">
+      <select id="fromCurrency">
+        <option value="usd">USD ($)</option>
+        <option value="eur">EUR (€)</option>
+      </select>
+    </div>
+    <div class="result-box">
+      <div class="result-label">Equivalente en Bolívares</div>
+      <div class="result-value" id="resultValue">—</div>
+      <div class="rate-info" id="rateInfo">Esperando datos...</div>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <h3>¿Cómo funciona esto sin backend?</h3>
+    <p>
+      Esta página usa <code>JavaScript</code> para hacer una petición directa a la API pública <code>rates.dolarvzla.com</code>, que lee la tasa oficial del BCV. No necesitas servidor propio. Funciona abriendo el archivo en cualquier navegador con internet.
+    </p>
+  </div>
+
+  <div class="footer" id="footer">
+    Cargando... · Fuente: <a href="https://www.bcv.org.ve" target="_blank">BCV</a> vía DolarVzla
+  </div>
+</div>
+
+<script>
+  // ─── CONFIGURACIÓN ───
+  const API_URL = 'https://rates.dolarvzla.com/bcv/current.json';
+  let rates = { usd: 0, eur: 0 };
+  let autoInterval = null;
+  let isAuto = false;
+
+  // ─── FORMATEO ───
+  function fmt(n) {
+    return n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fmt4(n) {
+    return n.toLocaleString('es-VE', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  }
+
+  // ─── FETCH REAL DEL BCV ───
+  async function fetchRates() {
+    const usdEl = document.getElementById('usdValue');
+    const eurEl = document.getElementById('eurValue');
+    const usdDelta = document.getElementById('usdDelta');
+    const eurDelta = document.getElementById('eurDelta');
+    const errorMsg = document.getElementById('errorMsg');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    refreshBtn.disabled = true;
+    refreshBtn.style.opacity = '0.6';
+    usdEl.textContent = 'Cargando...';
+    eurEl.textContent = 'Cargando...';
+    usdEl.classList.add('loading');
+    eurEl.classList.add('loading');
+    errorMsg.classList.remove('visible');
+
+    try {
+      const res = await fetch(API_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+
+      rates.usd = data.current.usd;
+      rates.eur = data.current.eur;
+      const prevUsd = data.previous.usd;
+      const prevEur = data.previous.eur;
+      const pctUsd = data.changePercentage.usd;
+      const pctEur = data.changePercentage.eur;
+
+      usdEl.classList.remove('loading');
+      eurEl.classList.remove('loading');
+      usdEl.textContent = fmt(rates.usd);
+      eurEl.textContent = fmt(rates.eur);
+
+      const signUsd = pctUsd >= 0 ? '▲' : '▼';
+      const signEur = pctEur >= 0 ? '▲' : '▼';
+      usdDelta.textContent = signUsd + ' ' + fmt(Math.abs(pctUsd)) + '% vs ' + data.previous.date;
+      eurDelta.textContent = signEur + ' ' + fmt(Math.abs(pctEur)) + '% vs ' + data.previous.date;
+      usdDelta.className = 'card-delta ' + (pctUsd >= 0 ? 'up' : 'down');
+      eurDelta.className = 'card-delta ' + (pctEur >= 0 ? 'up' : 'down');
+
+      statusBadge.classList.remove('offline');
+      statusDot.classList.remove('offline');
+      statusText.textContent = 'En vivo';
+
+      document.getElementById('footer').innerHTML =
+        'Actualizado: ' + new Date().toLocaleString('es-VE') +
+        ' · Fuente: <a href="https://www.bcv.org.ve" target="_blank">BCV</a> vía DolarVzla';
+
+      updateConverter();
+
+    } catch (err) {
+      console.error(err);
+      usdEl.classList.remove('loading');
+      eurEl.classList.remove('loading');
+      usdEl.textContent = fmt(rates.usd || 0);
+      eurEl.textContent = fmt(rates.eur || 0);
+      errorMsg.classList.add('visible');
+      statusBadge.classList.add('offline');
+      statusDot.classList.add('offline');
+      statusText.textContent = 'Sin conexión';
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.style.opacity = '1';
+    }
+  }
+
+  // ─── CONVERSOR ───
+  const amountInput = document.getElementById('amount');
+  const fromSelect = document.getElementById('fromCurrency');
+  const resultValue = document.getElementById('resultValue');
+  const rateInfo = document.getElementById('rateInfo');
+
+  function updateConverter() {
+    const amt = parseFloat(amountInput.value) || 0;
+    const cur = fromSelect.value;
+    const rate = rates[cur];
+    if (!rate) { resultValue.textContent = '—'; rateInfo.textContent = 'Esperando datos...'; return; }
+    const total = amt * rate;
+    resultValue.textContent = fmt(total) + ' Bs';
+    rateInfo.textContent = 'Tasa aplicada: ' + fmt(rate) + ' Bs/' + cur.toUpperCase();
+  }
+  amountInput.addEventListener('input', updateConverter);
+  fromSelect.addEventListener('change', updateConverter);
+
+  // ─── AUTO-REFRESH ───
+  function toggleAuto() {
+    const btn = document.getElementById('autoBtn');
+    if (isAuto) {
+      clearInterval(autoInterval);
+      isAuto = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Auto: OFF`;
+    } else {
+      fetchRates();
+      autoInterval = setInterval(fetchRates, 60000); // cada 60 segundos
+      isAuto = true;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Auto: ON`;
+    }
+  }
+
+  // ─── INICIO ───
+  fetchRates();
+</script>
+</body>
+</html>
